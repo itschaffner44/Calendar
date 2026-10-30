@@ -90,6 +90,12 @@
   <div class="calendar" id="calendar"></div>
   <div id="selectedInfo" style="margin-top:16px"></div>
 
+  <!-- EmailJS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script>
+    emailjs.init({ publicKey: "DBAm8LCh04YO8AuR8" }); // <-- ใส่ Public Key จาก EmailJS > Account > General
+  </script>
+
   <!-- Firebase SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -212,7 +218,36 @@
 	}
 
     function saveEvents() {
-      set(eventsRef, events);
+      return set(eventsRef, events);
+    }
+
+    // ===== แจ้งเตือนทางอีเมล (EmailJS) =====
+    const EMAILJS_SERVICE  = "service_qrzalbp";
+    const EMAILJS_TEMPLATE = "template_3e4sw29";
+    const NOTIFY_ONLY_LEAVE = false;            // true = ส่งเฉพาะ event ที่มีคำว่า "ลา" / leave, false = ส่งทุก event
+    const LEAVE_NOTIFY_RE = /ลา|leave/i;
+    let lastNotifyAt = 0;
+
+    function notifyEvent(ev) {
+      console.log('[notify] called', ev);
+      if (typeof emailjs === 'undefined') return console.warn('[notify] emailjs SDK not loaded');
+      if (NOTIFY_ONLY_LEAVE && !LEAVE_NOTIFY_RE.test(ev.text)) return console.warn('[notify] skipped: not a leave event');
+      if (Date.now() - lastNotifyAt < 5000) return console.warn('[notify] skipped: sent less than 5s ago');   // กันกดซ้ำรัว
+      lastNotifyAt = Date.now();
+
+      const dateStr = ev.dateStart === ev.dateEnd ? ev.dateStart : `${ev.dateStart} ถึง ${ev.dateEnd}`;
+      const timeStr = (ev.startTime || ev.endTime) ? `${ev.startTime || '-'} - ${ev.endTime || '-'}` : '-';
+
+      emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
+        name: ev.owner || '-',
+        date: dateStr,
+        type: ev.text,
+        note: timeStr,
+        time: new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })
+      }).then(
+        () => console.log('Notification sent'),
+        (err) => console.error('EmailJS error:', err)
+      );
     }
 
     // Real-time listener — sync user พร้อมกัน
@@ -436,7 +471,10 @@
           d1.setDate(d1.getDate() + 1);
         }
 
-        saveEvents();
+        console.log('[notify] saving to Firebase...');
+        saveEvents().then(() => {
+          notifyEvent({ text: txt, owner, startTime, endTime, dateStart, dateEnd });
+        }).catch(err => console.error('[notify] Firebase save failed:', err));
       };
     }
 
