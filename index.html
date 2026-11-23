@@ -143,7 +143,9 @@
         noLeave: "ไม่พบวันหยุด",
         enterPwd: "กรอกรหัสผ่านเพื่อลบวันหยุดทั้งหมด:",
         wrongPwd: "รหัสผ่านไม่ถูกต้อง",
-        confirmClear: (n) => `ลบวันหยุดทั้งหมด ${n} รายการ? (กู้คืนไม่ได้)`
+        confirmClear: (n) => `ลบวันหยุดทั้งหมด ${n} รายการ? (กู้คืนไม่ได้)`,
+        fullDay: "เต็มวัน", halfDay: "ครึ่งวัน", halfAM: "ครึ่งวันเช้า", halfPM: "ครึ่งวันบ่าย",
+        halfAMOpt: "ครึ่งเช้า", halfPMOpt: "ครึ่งบ่าย"
       },
       en: {
         weekdays: ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],
@@ -166,7 +168,9 @@
         noLeave: "No holidays found",
         enterPwd: "Enter password to delete all holidays:",
         wrongPwd: "Incorrect password",
-        confirmClear: (n) => `Delete all ${n} holidays? (cannot be undone)`
+        confirmClear: (n) => `Delete all ${n} holidays? (cannot be undone)`,
+        fullDay: "Full day", halfDay: "Half day", halfAM: "Half day (AM)", halfPM: "Half day (PM)",
+        halfAMOpt: "Morning", halfPMOpt: "Afternoon"
       }
     };
 
@@ -192,6 +196,13 @@
       const rules = lang === 'en' ? LEAVE_TH_EN : LEAVE_EN_TH;
       rules.forEach(([re, rep]) => { t = t.replace(re, rep); });
       return t;
+    }
+
+    // ประเภทการลา: full / half-am / half-pm
+    function leaveLabel(e, l) {
+      const t = TEXT[l || lang];
+      if(!e || !e.leaveType) return '';
+      return e.leaveType === 'full' ? t.fullDay : e.leaveType === 'half-am' ? t.halfAM : e.leaveType === 'half-pm' ? t.halfPM : '';
     }
 
     // วันที่ปัจจุบันตามเวลาประเทศไทย (Asia/Bangkok) ไม่ขึ้นกับ timezone ของเครื่อง
@@ -236,7 +247,7 @@
       lastNotifyAt = Date.now();
 
       const dateStr = ev.dateStart === ev.dateEnd ? ev.dateStart : `${ev.dateStart} ถึง ${ev.dateEnd}`;
-      const timeStr = (ev.startTime || ev.endTime) ? `${ev.startTime || '-'} - ${ev.endTime || '-'}` : '-';
+      const timeStr = ev.leaveType ? leaveLabel(ev, 'th') : '-';
 
       emailjs.send(EMAILJS_SERVICE, EMAILJS_TEMPLATE, {
         name: ev.owner || '-',
@@ -308,7 +319,7 @@
             const ev = document.createElement('div');
             ev.className='event';
             ev.style.borderLeftColor = e.color || '#4a90e2';
-            const timeStr = e.startTime ? e.startTime + (e.endTime? ' - '+e.endTime : '') : '';
+            const lv = leaveLabel(e); const timeStr = lv ? '(' + lv + ')' : (e.startTime ? e.startTime + (e.endTime? ' - '+e.endTime : '') : '');
             const ownerStr = e.owner ? ` [${e.owner}]` : '';
             ev.textContent = (timeStr ? timeStr + ' ' : '') + trEvent(e.text) + ownerStr;
             evs.appendChild(ev);
@@ -373,7 +384,7 @@
         }
 
         cur.forEach((e, idx) => {
-          const timeStr = e.startTime ? e.startTime + (e.endTime? ' - '+e.endTime : '') : '';
+          const lv = leaveLabel(e); const timeStr = lv ? '(' + lv + ')' : (e.startTime ? e.startTime + (e.endTime? ' - '+e.endTime : '') : '');
           const row = document.createElement('div');
           row.className = 'event-row';
           row.style.borderLeftColor = e.color || '#4a90e2';
@@ -436,8 +447,14 @@
         <input id="evtText" type="text" placeholder="${TEXT[lang].placeholderEvent}" />
         <input id="evtOwner" type="text" placeholder="${TEXT[lang].placeholderOwner}" style="flex:0.6;min-width:80px;" />
         <input id="evtColor" type="color" value="#4a90e2" />
-        <input id="evtStart" type="time" />
-        <input id="evtEnd" type="time" />
+        <select id="evtLeaveType">
+          <option value="full">${TEXT[lang].fullDay}</option>
+          <option value="half">${TEXT[lang].halfDay}</option>
+        </select>
+        <select id="evtHalf" style="display:none">
+          <option value="am">${TEXT[lang].halfAMOpt}</option>
+          <option value="pm">${TEXT[lang].halfPMOpt}</option>
+        </select>
         <input id="evtDateStart" type="date" />
         <input id="evtDateEnd" type="date" />
         <button id="addBtn">${TEXT[lang].addBtn}</button>
@@ -445,12 +462,15 @@
       body.appendChild(addForm);
       selectedInfo.appendChild(body);
 
+      const leaveTypeSel = document.getElementById('evtLeaveType');
+      const halfSel = document.getElementById('evtHalf');
+      leaveTypeSel.onchange = () => { halfSel.style.display = leaveTypeSel.value === 'half' ? '' : 'none'; };
+
       document.getElementById('addBtn').onclick = () => {
         const txt = document.getElementById('evtText').value.trim();
         const owner = document.getElementById('evtOwner').value.trim();
         const color = document.getElementById('evtColor').value;
-        const startTime = document.getElementById('evtStart').value;
-        const endTime = document.getElementById('evtEnd').value;
+        const leaveType = leaveTypeSel.value === 'half' ? 'half-' + halfSel.value : 'full';
         const dateStart = document.getElementById('evtDateStart').value;
         const dateEnd   = document.getElementById('evtDateEnd').value;
 
@@ -467,13 +487,13 @@
         while(d1 <= d2){
           const k = formatKey(d1);
           events[k] = events[k] || [];
-          events[k].push({ text: txt, owner, color, startTime, endTime, multiStart: dateStart, multiEnd: dateEnd });
+          events[k].push({ text: txt, owner, color, leaveType, multiStart: dateStart, multiEnd: dateEnd });
           d1.setDate(d1.getDate() + 1);
         }
 
         console.log('[notify] saving to Firebase...');
         saveEvents().then(() => {
-          notifyEvent({ text: txt, owner, startTime, endTime, dateStart, dateEnd });
+          notifyEvent({ text: txt, owner, leaveType, dateStart, dateEnd });
         }).catch(err => console.error('[notify] Firebase save failed:', err));
       };
     }
